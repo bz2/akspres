@@ -1,0 +1,190 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+		<title>GKE to AKS</title>
+
+		<link rel="stylesheet" href="css/reset.css">
+		<link rel="stylesheet" href="css/reveal.css">
+		<link rel="stylesheet" href="css/theme/zegami.css">
+
+		<!-- Theme used for syntax highlighting of code -->
+		<link rel="stylesheet" href="lib/css/github.min.css">
+
+		<!-- Printing and PDF exports -->
+		<script>
+			var link = document.createElement( 'link' );
+			link.rel = 'stylesheet';
+			link.type = 'text/css';
+			link.href = window.location.search.match( /print-pdf/gi ) ? 'css/print/pdf.css' : 'css/print/paper.css';
+			document.getElementsByTagName( 'head' )[0].appendChild( link );
+		</script>
+	</head>
+	<body>
+		<div class="reveal">
+			<div class="slides">
+				<section>
+<h1>GKE to AKS</h1>
+<p>Martin Packman</p>
+<p><a href="mailto:martin@zegami.com">martin@zegami.com</a></p>
+<img class="plain" src="assets/zegami.png" />
+<aside class="notes">
+<p>Hi.</p>
+<ul>
+<li>k8s - Kubernetes</li>
+<li>GKE - Google Kubernetes Engine</li>
+<li>AKS - Azure Kubernetes Services</li>
+</ul>
+</aside>
+				</section>
+				<section>
+<h2>what we have deployed</h2>
+<aside class="notes">
+<p>Several services which define their own deployments, and a repo of scripts for managing the process.</p>
+</aside>
+				</section>
+				<section>
+<pre><code class="language-yaml hljs">apiVersion: v1
+kind: Service
+metadata:
+  name: zegami-job-launcher
+  annotations:
+    prometheus.io/scrape: 'true'
+    prometheus.io/port: '8000'
+spec:
+  type: NodePort
+  ports:
+    - name: monitoring
+      protocol: TCP
+      port: 8000
+      targetPort: 8000
+  selector:
+    app: launcher
+</code></pre>
+<aside class="notes">
+<p>In k8s, deployment defined in YAML config for various resource types like this service, k8s handles how to actually place that into containers on machines, scaling and so on.</p>
+</aside>
+				</section>
+				<section>
+<pre><code class="language-shell hljs">$ kubectl config use-context staging
+Switched to context "staging".
+$ kubectl apply --dry-run -f zegami-launcher-service.yaml
+service "zegami-job-launcher" configured (dry run)
+</code></pre>
+<aside class="notes">
+<p>In practice not run manually, all handled by scripts in our 'ship' project, and done through CI.</p>
+</aside>
+				</section>
+				<section>
+<h2>cheating on blob storage</h2>
+<aside class="notes">
+<p>As well as k8s services, we also have a lot of image data in blob store</p>
+</aside>
+				</section>
+				<section>
+<ul>
+<li>write - £0.0373 per 10,000</li>
+<li>read - £0.0030 per 10,000</li>
+</ul>
+<p><a href="https://azure.microsoft.com/en-gb/pricing/details/storage/blobs/">from Azure 'Block blob pricing'</a></p>
+<aside class="notes">
+<p>write costs 10x read</p>
+</aside>
+				</section>
+				<section>
+<p>problem: moving data is expensive</p>
+				</section>
+				<section>
+<p>solution: leave it in place for now</p>
+				</section>
+				<section>
+<h2>monitoring</h2>
+<aside class="notes">
+<p>Actually...</p>
+</aside>
+				</section>
+				<section>
+<h2 style="text-decoration: line-through">monitoring</h2>
+<aside class="notes">
+<p>too big a topic, let's take one aspect.</p>
+</aside>
+				</section>
+				<section>
+<h2>logging</h2>
+<aside class="notes">
+<p>...just logging.</p>
+</aside>
+				</section>
+				<section>
+<img src="assets/gcp stackdriver logging.png" />
+<aside class="notes">
+<p>What the stackdriver logging interface into GKE looks like.</p>
+</aside>
+				</section>
+				<section>
+<img src="assets/azure k8s service logs.png" />
+<aside class="notes">
+<p>What k8s logging looks like on Azure.</p>
+</aside>
+				</section>
+				<section>
+<pre><code class="hljs">resource.type="container"
+resource.labels.cluster_name="cluster-1"
+resource.labels.namespace_id="prod"
+logName="projects/zegami-prod/logs/zegami-job-launcher"
+</code></pre>
+<aside class="notes">
+<p>Example 'advanced' log filter</p>
+</aside>
+				</section>
+				<section>
+<pre><code class="hljs">let startTimestamp = ago(5d);
+KubePodInventory
+| where TimeGenerated &gt; startTimestamp
+| project ContainerID, PodName=Name, PodLabel, PodLabelJson=parsejson(PodLabel)
+// Label filter: for example, if the pod contains "app: backend" label, then app would be the key, and backend would be the value
+| where PodLabelJson[0]["app"] == "backend"
+| distinct ContainerID, PodName, PodLabel
+| join
+(
+    ContainerLog
+    | where TimeGenerated &gt; startTimestamp
+)
+on ContainerID
+| project TimeGenerated, PodName, LogEntry, LogEntrySource, PodLabel
+| order by TimeGenerated desc</code></pre>
+<p><a href="https://blog.coffeeapplied.com/using-azure-monitor-logs-with-azure-kubernetes-service-aks-c0b0625295d1">from post on Azure logging by Denis Biondic</a></p>
+<aside class="notes">
+<p>Example query using Azure Log Analytics. Someone else's example as we couldn't actually get this to work how we wanted.</p>
+</aside>
+				</section>
+				<section>
+<h2>summary</h2>
+<aside class="notes">
+<p>Good bits: Moving was not *that* hard, and get to do harder bits in pieces. Also k8s as a whole more mature than when we started.</p>
+<p>Bad bits: Lacking some good answers to things we were taking for granted in GKE.</p>
+</aside>
+				</section>
+			</div>
+		</div>
+
+		<script src="js/reveal.js"></script>
+
+		<script>
+			// More info about config & dependencies:
+			// - https://github.com/hakimel/reveal.js#configuration
+			// - https://github.com/hakimel/reveal.js#dependencies
+			Reveal.initialize({
+				transition: 'fade',
+				dependencies: [
+					{ src: 'plugin/markdown/marked.js' },
+					{ src: 'plugin/markdown/markdown.js' },
+					{ src: 'plugin/notes/notes.js', async: true },
+					{ src: 'plugin/highlight/highlight.js', async: true }
+				]
+			});
+		</script>
+	</body>
+</html>
